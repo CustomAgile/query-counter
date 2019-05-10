@@ -1,3 +1,4 @@
+
 Ext.define('TSQueryCounter', {
     extend: 'Rally.app.App',
     componentCls: 'app',
@@ -118,6 +119,7 @@ Ext.define('TSQueryCounter', {
             let model = this.models[artifactType];
             this.logger.log('_timeboxScopeIsValidForArtifactType', timeboxScope.getType(), model, model.getField('Milestones'), model.getField('Iteration'), model.getField('Release'), timeboxScope.getQueryFilter().toString());
             let field = 'Release';
+            // eslint-disable-next-line default-case
             switch (timeboxScope.getType()) {
                 case 'iteration':
                     field = 'Iteration';
@@ -182,9 +184,19 @@ Ext.define('TSQueryCounter', {
     // This only seems to occur the first time after the page is made timebox scoped and goes away once
     // the page is reloaded once.
     _runApp() {
+        let promisesComplete = 0;
+        let errorCount = 0;
+        let promises = [];
+
+        const refreshMask = () => {
+            this.setLoading(`Counting  ${promisesComplete} complete of ${promises.length} error count ${errorCount}`);
+        };
+        const displayError = () => {
+            errorCount++;
+            refreshMask();
+        };
         let timeboxScope = this.getContext().getTimeboxScope();
         let countVariables = this._getCountVariables();
-        let promises = [];
 
         this.logger.log('_runApp', countVariables);
 
@@ -213,21 +225,22 @@ Ext.define('TSQueryCounter', {
             if (ancestorFilter) {
                 filters = filters.and(ancestorFilter);
             }
-            let promise = this._loadRecordCount(artifactType, filters || [], id);
-
+            let promise = this._loadRecordCount(artifactType, filters || [], id, displayError);
+            promise.then((a) => {
+                promisesComplete++;
+                refreshMask();
+                return a;
+            });
             promises.push(promise);
         }, this);
 
         if (promises.length > 0) {
-            this.setLoading('Counting...');
+            refreshMask();
 
-            Deft.Promise.all(promises).then({
-                success: this._updateDisplay,
-                failure: this._showErrorNotification,
-                scope: this
-            }).always(function f() {
-                this.setLoading(false);
-            }, this);
+            Promise.all(promises)
+                .then((...args) => this._updateDisplay(...args))
+                .catch((...args) => this._showErrorNotification(...args))
+                .finally(() => this.setLoading(false));
         } else {
             this._updateDisplay();
         }
@@ -238,7 +251,7 @@ Ext.define('TSQueryCounter', {
         Rally.ui.notify.Notifier.showError({ message: msg });
     },
 
-    _loadRecordCount(model, filters, id) {
+    async _loadRecordCount(model, filters, id, onFailedAttempt = () => { }) {
         let deferred = Ext.create('Deft.Deferred');
         let me = this;
         this.logger.log('Starting load: model >>', model, 'filters>>', filters.toString());
@@ -246,7 +259,8 @@ Ext.define('TSQueryCounter', {
             model,
             filters,
             limit: 1,
-            pageSize: 1
+            pageSize: 1,
+            fetch: false
         };
         if (this.searchAllProjects()) {
             config.context = {
@@ -255,20 +269,21 @@ Ext.define('TSQueryCounter', {
         }
 
         Ext.create('Rally.data.wsapi.Store', config).load({
-            callback(records, operation, successful) {
+            callback: (records, operation, successful) => {
                 let result = {};
                 if (successful) {
                     me.logger.log('result:', operation);
                     result[id] = operation.resultSet.totalRecords || 0;
                     deferred.resolve(result);
                 } else {
-                    me.logger.log('Failed: ', operation);
-                    result[id] = `<span class="error-counter">#ERROR: ${operation.error.errors.join('. ')}</span>`;
-                    deferred.resolve(result);
+                    console.warn('Failed: ', operation);
+                    onFailedAttempt(id);
+                    this._loadRecordCount(model, filters, id, onFailedAttempt)
+                        .then(p => deferred.resolve(p));
                 }
             }
         });
-        return deferred.promise;
+        return CustomPromise.wrap(deferred.promise);
     },
 
     _updateDisplay(values) {
@@ -285,9 +300,9 @@ Ext.define('TSQueryCounter', {
 
         let html = this.getSetting('html');
         let tpl = new Ext.XTemplate(html);
-        let display_box = this.down('#display_box');
-        display_box.removeAll();
-        let view = display_box.add({
+        let displayBox = this.down('#display_box');
+        displayBox.removeAll();
+        let view = displayBox.add({
             xtype: 'container',
             tpl,
             cls: 'default-counter'
@@ -303,7 +318,7 @@ Ext.define('TSQueryCounter', {
         let result = false;
 
         let tbscope = this.getContext().getTimeboxScope();
-        if (tbscope && tbscope.getType() == 'milestone') {
+        if (tbscope && tbscope.getType() === 'milestone') {
             result = true;
         }
         return result;
