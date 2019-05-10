@@ -393,7 +393,7 @@ module.exports = function(grunt) {
     //load
     grunt.loadNpmTasks('grunt-templater');
     grunt.loadNpmTasks('grunt-contrib-jasmine');
-    grunt.loadNpmTasks('grunt-contrib-uglify');
+    grunt.loadNpmTasks('grunt-contrib-uglify-es');
     grunt.loadNpmTasks('grunt-contrib-watch');
     grunt.loadNpmTasks('grunt-prompt');
 

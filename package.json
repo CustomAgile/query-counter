@@ -11,7 +11,8 @@
   "dependencies": {
     "@agile-central-technical-services/utils-ancestor-pi-app-filter": "^2.3.1",
     "@agile-central-technical-services/utils-ancestor-pi-inline-filter": "^1.0.14",
-    "@agile-central-technical-services/utils-file-utils": "^1.0.0"
+    "@agile-central-technical-services/utils-file-utils": "^1.0.0",
+    "grunt-contrib-uglify-es": "github:gruntjs/grunt-contrib-uglify#harmony"
   },
   "devDependencies": {
     "grunt": "~0.4.5",
