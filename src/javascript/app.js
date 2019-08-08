@@ -3,29 +3,46 @@ Ext.define('TSQueryCounter', {
     extend: 'Rally.app.App',
     componentCls: 'app',
     logger: new Rally.technicalservices.Logger(),
-    // defaults: { margin: '0 0 10 0' },
     items: [{
         xtype: 'container',
         layout: {
-            type: 'hbox',
-            align: 'middle'
+            type: 'vbox',
+            align: 'stretch'
         },
         items: [{
-            id: Utils.AncestorPiAppFilter.RENDER_AREA_ID,
             xtype: 'container',
-            flex: 1,
+            layout: {
+                type: 'hbox',
+                align: 'middle'
+            },
+            items: [
+                {
+                    id: Utils.AncestorPiAppFilter.RENDER_AREA_ID,
+                    xtype: 'container',
+                    layout: {
+                        type: 'hbox',
+                        align: 'middle',
+                        defaultMargins: '0 10 10 0',
+                    }
+                },
+                {
+                    xtype: 'rallybutton',
+                    style: { float: 'right' },
+                    cls: 'secondary rly-small',
+                    frame: false,
+                    width: 34,
+                    itemId: 'export-menu-button',
+                    iconCls: 'icon-export'
+                }
+            ]
+        }, {
+            id: Utils.AncestorPiAppFilter.PANEL_RENDER_AREA_ID,
+            xtype: 'container',
             layout: {
                 type: 'hbox',
                 align: 'middle',
                 defaultMargins: '0 10 10 0',
             }
-        }, {
-            xtype: 'rallybutton',
-            style: { float: 'right' },
-            cls: 'secondary rly-small',
-            frame: false,
-            itemId: 'export-menu-button',
-            iconCls: 'icon-export'
         }]
     },
     {
@@ -52,6 +69,7 @@ Ext.define('TSQueryCounter', {
     currentValues: [],
 
     launch() {
+        Rally.data.wsapi.Proxy.superclass.timeout = 240000;
         let exportButton = this.down('#export-menu-button');
         exportButton.on('click', this._onExport, this);
         this._validateSettings();
@@ -63,14 +81,14 @@ Ext.define('TSQueryCounter', {
                 labelWidth: 150,
                 margin: 10
             },
+            filtersHidden: false,
             listeners: {
                 scope: this,
                 ready(plugin) {
                     plugin.addListener({
                         scope: this,
-                        select() {
-                            this._runApp();
-                        }
+                        select: this._runApp,
+                        change: this._runApp
                     });
                     this._reloadModel().then({
                         scope: this,
@@ -221,9 +239,11 @@ Ext.define('TSQueryCounter', {
                 }
             }
 
-            let ancestorFilter = this.ancestorFilterPlugin.getFilterForType(artifactType);
-            if (ancestorFilter) {
-                filters = filters.and(ancestorFilter);
+            let ancestorFilters = this.ancestorFilterPlugin.getAllFiltersForType(artifactType);
+            if (ancestorFilters) {
+                for (let i = 0; i < ancestorFilters.length; i++) {
+                    filters = filters.and(ancestorFilters[i]);
+                }
             }
             let promise = this._loadRecordCount(artifactType, filters || [], id, displayError);
             promise.then((a) => {

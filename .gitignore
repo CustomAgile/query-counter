@@ -7,7 +7,5 @@ auth.json*
 App-debug.html
 _SpecRunner.html
 /test/logs/
-deploy/
--deploy/Ugly.txt
 .project
 .settings
