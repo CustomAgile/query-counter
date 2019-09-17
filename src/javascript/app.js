@@ -253,7 +253,9 @@ Ext.define('TSQueryCounter', {
                     this.setLoading(false);
                     this.loadingFailed = true;
                 });
-                ancestorFilters[artifactType] = ancestorFiltersForType;
+                if (ancestorFiltersForType) {
+                    ancestorFilters[artifactType] = ancestorFiltersForType;
+                }
             }
 
             if (this.loadingFailed) {
