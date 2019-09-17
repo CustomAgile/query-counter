@@ -1,13 +1,13 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>query-counter-1.2.0</title>
+    <title>query-counter-1.2.1</title>
     <!--  (c) 2019 Custom Agile.  All Rights Reserved. -->
-    <!--  Build Date: Thu Aug 08 2019 17:52:56 GMT-0500 (Central Daylight Time) -->
+    <!--  Build Date: Tue Sep 17 2019 11:37:40 GMT-0700 (Pacific Daylight Time) -->
 
     <script type="text/javascript">
-        var APP_BUILD_DATE = "Thu Aug 08 2019 17:52:56 GMT-0500 (Central Daylight Time)";
-        var CHECKSUM = 169122212503;
+        var APP_BUILD_DATE = "Tue Sep 17 2019 11:37:40 GMT-0700 (Pacific Daylight Time)";
+        var CHECKSUM = 224973011223;
     </script>
 
     <script type="text/javascript" src="/apps/2.1/sdk.js"></script>
@@ -83,7 +83,7 @@ Ext.define('Utils.AncestorPiAppFilter', {
          * @cfg {Array}
          * Whitelist array for inline filters
          */
-        whiteListFields: [],
+        whiteListFields: ['Tags', 'Milstones'],
 
         /**
          * @cfg {Array}
@@ -212,15 +212,24 @@ Ext.define('Utils.AncestorPiAppFilter', {
         });
 
         // Add the control components then fire ready
-        Promise.all([this._addAncestorControls(), this._addFilters()]).then(
-            function () {
-                this._setReady();
-            }.bind(this),
-            function (error) {
-                Rally.ui.notify.Notifier.showError({ message: error });
-                this._setReady();
+        Rally.data.util.PortfolioItemHelper.getPortfolioItemTypes().then({
+            scope: this,
+            success: function (piTypes) {
+                this.portfolioItemTypes = piTypes;
+                Promise.all([this._addAncestorControls(), this._addFilters()]).then(
+                    function () {
+                        this._setReady();
+                    }.bind(this),
+                    function (error) {
+                        Rally.ui.notify.Notifier.showError({ message: error });
+                        this._setReady();
+                    }.bind(this)
+                );
+            },
+            failure: function () {
+                Rally.ui.notify.Notifier.showError({ message: 'Failed to fetch portfolio item types for multi-level filter' });
             }
-        );
+        });
     },
 
     notifySubscribers: function (changeType) {
@@ -268,45 +277,74 @@ Ext.define('Utils.AncestorPiAppFilter', {
 
     // Returns an array containing all of the filters applied in the
     // multi-level filter as well as the selected ancestor PI if one
-    // is selected. type is the TypeDefinition for the Portfolio Item
-    // level you wish to fetch.
-    getAllFiltersForType: function (type) {
+    // is selected. 
+    // type is the TypeDefinition.TypePath for the Portfolio Item level you wish to fetch.
+    getAllFiltersForType: async function (type, includeFiltersBelowType) {
         let ancestorFilter = this.getAncestorFilterForType(type);
         let filters = ancestorFilter ? [ancestorFilter] : [];
-        filters = filters.concat(this.getMultiLevelFiltersForType(type));
+        let multiFilters = await this.getMultiLevelFiltersForType(type, includeFiltersBelowType);
+        filters = filters.concat(multiFilters);
 
         return filters;
     },
 
-    // Returns an array containing all of the filters applied in the
-    // multi-level filter. type is the TypeDefinition for the Portfolio 
-    // Item level you wish to fetch.
-    getMultiLevelFiltersForType: function (type) {
+    // Returns an array containing all of the filters applied in the multi-level filter for a given PI type. 
+    // Type is the TypeDefinition.TypePath for the Portfolio Item level you wish to fetch.
+    getMultiLevelFiltersForType: async function (type, includeFiltersBelowType) {
         let filters = [];
         let modelName = type.toLowerCase();
         let multiLevelFilters = this.getMultiLevelFilters();
+        let keys = Object.keys(multiLevelFilters);
 
-        _.each(multiLevelFilters, function (val, key) {
-            if (modelName === key.toLowerCase()) {
-                filters = filters.concat(val);
-            }
-            else {
-                let pisAbove = this._piTypeAncestors(modelName, key);
+        for (let i = 0; i < keys.length; i++) {
+            let currentType = keys[i];
+            let currentFilters = multiLevelFilters[currentType];
 
-                if (val.length && pisAbove !== null) {
-                    let property = this._propertyPrefix(modelName, pisAbove);
-                    if (property) {
-                        _.each(val, function (filter) {
-                            filters.push(new Rally.data.wsapi.Filter({
-                                property: `${property}.${filter.property}`,
-                                operator: filter.operator,
-                                value: filter.value
-                            }));
-                        }.bind(this));
-                    }
+            if (currentFilters.length) {
+                // If scoping all projects, filter releases by name instead of value
+                await this._convertReleaseFilters(currentFilters);
+
+                // If we're at the given level, just add the filters
+                if (modelName === currentType.toLowerCase()) {
+                    filters = filters.concat(currentFilters);
+                }
+                // If we're at a level above the given level, convert filters to fit given level
+                else {
+                    let parentFilters = await this._getParentFilters(modelName, currentType, currentFilters);
+                    filters = filters.concat(parentFilters);
                 }
             }
-        }.bind(this));
+        }
+
+        // If building a hierarchy from top level down, we don't need to include filters
+        // below the given type (e.g. a timeline app). Otherwise if being used for an app
+        // that only displays one PI type, we need to include those lower filters
+        if (includeFiltersBelowType && Ext.String.startsWith(type.toLowerCase(), 'portfolioitem')) {
+            let childFilter = await this._getChildFiltersForType(type, multiLevelFilters);
+            if (childFilter) {
+                filters.push(childFilter);
+            }
+        }
+
+        return filters;
+    },
+
+    // Returns an array containing all of the filters applied to a specific PI level.
+    // type is the TypeDefinition.TypePath for the Portfolio Item level you wish to fetch.
+    getFiltersOfSingleType: async function (type) {
+        let filters = [];
+        let modelName = type.toLowerCase();
+        let multiLevelFilters = this.getMultiLevelFilters();
+        let keys = Object.keys(multiLevelFilters);
+
+        for (let i = 0; i < keys.length; i++) {
+            let key = keys[i];
+            let val = multiLevelFilters[key];
+            if (modelName === key.toLowerCase()) {
+                await this._convertReleaseFilters(val);
+                filters = filters.concat(val);
+            }
+        }
 
         return filters;
     },
@@ -326,6 +364,176 @@ Ext.define('Utils.AncestorPiAppFilter', {
         });
 
         return filters;
+    },
+
+    // Starting at the lowest PI type, get a list of IDs that fit the given filter. 
+    // Traverse up the PI hierarchy until reaching the given type and return a list of IDs
+    // for that type that fit all filters from below
+    // Returns an array of object IDs
+    _getChildFiltersForType: async function (type, filters) {
+        let idFilter;
+        // PI types are in order lowest to highest
+        for (let i = 0; i < this.portfolioItemTypes.length; i++) {
+            let currentType = this.portfolioItemTypes[i].get('TypePath');
+            let currentFilter = filters[currentType];
+            if (currentType.toLowerCase() === type.toLowerCase()) {
+                break;
+            }
+            if ((currentFilter && currentFilter.length) || idFilter) {
+                if (!currentFilter) {
+                    currentFilter = [];
+                }
+                if (idFilter) {
+                    currentFilter.push(idFilter);
+                }
+
+                // To reduce the number of results returned, we include filters of higher level PI types
+                for (let j = i + 1; j < this.portfolioItemTypes.length; j++) {
+                    let parentType = this.portfolioItemTypes[j].get('TypePath');
+                    let parentFilters = await this._getParentFilters(currentType, parentType, filters[parentType]);
+                    currentFilter = currentFilter.concat(parentFilters);
+                }
+
+                let ancestor = this.getAncestorFilterForType(type);
+                if (ancestor && ancestor.value) {
+                    currentFilter.push(ancestor);
+                }
+
+                let records = await new Promise(function (resolve, reject) { this._getFilteredIds(currentFilter, currentType, resolve, reject); }.bind(this)).catch((e) => {
+                    throw new Error(e);
+                });
+
+                if (records.length) {
+                    let parents = _.map(records, function (id) { return (id.get('Parent') && id.get('Parent').ObjectID) || 0; });
+                    idFilter = new Rally.data.wsapi.Filter({
+                        property: 'ObjectID',
+                        operator: 'in',
+                        value: _.uniq(parents)
+                    });
+                }
+                else {
+                    idFilter = new Rally.data.wsapi.Filter({
+                        property: 'ObjectID',
+                        operator: '=',
+                        value: 0
+                    });
+                }
+            }
+        }
+        return idFilter;
+    },
+
+    // Given a type and a parent type and array of parent filters, convert the filters
+    // to apply to the given type
+    _getParentFilters: async function (type, parentType, parentFilters) {
+        let pisAbove = this._piTypeAncestors(type, parentType);
+
+        if (pisAbove !== null) {
+            let parentProperty = this._propertyPrefix(type, pisAbove);
+            if (parentProperty) {
+                let currentLevelFilters = [];
+                let hasCustomFieldFilters = this._hasCustomFilters(parentFilters);
+                _.each(parentFilters, function (filter) {
+                    let prop = filter.property;
+                    if (!hasCustomFieldFilters) {
+                        prop = `${parentProperty}.${prop}`;
+                    }
+
+                    currentLevelFilters.push(new Rally.data.wsapi.Filter({
+                        property: prop,
+                        operator: filter.operator,
+                        value: filter.value
+                    }));
+                }.bind(this));
+
+                // If filters on custom fields exist, lets get a list of IDs at that level and use those IDs as our filter
+                if (hasCustomFieldFilters) {
+                    let parentIDs = [];
+                    try {
+                        parentIDs = await new Promise(function (resolve, reject) { this._getFilteredIds(currentLevelFilters, parentType, resolve, reject); }.bind(this)).catch((e) => {
+                            throw new Error(e);
+                        });
+                        if (parentIDs.length) {
+                            return new Rally.data.wsapi.Filter({
+                                property: parentProperty + '.ObjectID',
+                                operator: 'in',
+                                value: _.map(parentIDs, function (id) { return id.get('ObjectID'); })
+                            });
+                        }
+                        else {
+                            return new Rally.data.wsapi.Filter({
+                                property: parentProperty + '.ObjectID',
+                                operator: '=',
+                                value: 0
+                            });
+                        }
+                    }
+                    catch (e) {
+                        return [new Rally.data.wsapi.Filter({
+                            property: parentProperty + '.ObjectID',
+                            operator: '=',
+                            value: 0
+                        })];
+                    }
+                }
+                else {
+                    return currentLevelFilters;
+                }
+            }
+        }
+        return [];
+    },
+
+    _hasCustomFilters: function (filters) {
+        for (let filter of filters) {
+            // Rally has a hard time filtering on custom dropdown fields on parents (probably
+            // not indexed) so we check to see if any are applied
+            if (filter.property.indexOf('c_') !== -1 && typeof filter.value === 'string') {
+                return true;
+            }
+        }
+        return false;
+    },
+
+    // Takes an array of filters. If scoping across all projects, we need to update any release
+    // filters to filter on the release name rather than the release value
+    _convertReleaseFilters: async function (filters) {
+        if (this.getIgnoreProjectScope()) {
+            for (let i = 0; i < filters.length; i++) {
+                if (filters[i].property === 'Release') {
+                    let release = await this._getRelease(filters[i].value);
+                    if (release) {
+                        filters[i] = new Rally.data.wsapi.Filter({
+                            property: 'Release.Name',
+                            value: release.Name
+                        });
+                    }
+                }
+            }
+        }
+    },
+
+    _getRelease: async function (releaseVal) {
+        let deferred = Ext.create('Deft.Deferred');
+
+        Ext.Ajax.request({
+            url: Ext.String.format('/slm/webservice/v2.0{0}?fetch=Name', releaseVal),
+            success(response) {
+                if (response && response.responseText) {
+                    let obj = Ext.JSON.decode(response.responseText);
+                    if (obj && obj.Release) {
+                        deferred.resolve(obj.Release);
+                    }
+                    else {
+                        deferred.resolve(null);
+                    }
+                } else {
+                    deferred.resolve(null);
+                }
+            }
+        });
+
+        return deferred.promise;
     },
 
     getSelectedPiRecord: function () {
@@ -352,6 +560,14 @@ Ext.define('Utils.AncestorPiAppFilter', {
         return states;
     },
 
+    getModels: function () {
+        return this.models;
+    },
+
+    getPortfolioItemTypes: function () {
+        return this.portfolioItemTypes;
+    },
+
     // Sets the states of the inline filters
     // Used when applying a shared view to the filters
     setMultiLevelFilterStates: function (states) {
@@ -369,6 +585,46 @@ Ext.define('Utils.AncestorPiAppFilter', {
             }
             setTimeout(function () { this.tabPanel.setActiveTab(0); }.bind(this), 1500);
         }
+    },
+
+    // Returns an array of records fitting the given filters
+    _getFilteredIds: function (filters, model, resolve, reject) {
+        let dataContext = Rally.getApp().getContext().getDataContext();
+        if (this.getIgnoreProjectScope()) {
+            dataContext.project = null;
+        }
+
+        let ancestor = this.getAncestorFilterForType(model);
+        if (ancestor && ancestor.value) {
+            filters.push(ancestor);
+        }
+
+        let store = Ext.create('Rally.data.wsapi.Store', {
+            autoLoad: false,
+            context: dataContext,
+            filters,
+            model,
+            fetch: ['ObjectID', 'Parent'],
+            limit: Infinity,
+            enablePostGet: true
+        });
+
+        store.load().then({
+            scope: this,
+            success: function (records) {
+                resolve(records);
+            },
+            failure: function () {
+                //Rally.ui.notify.Notifier.showError({ message: 'Multi-level filter failed while filtering out items above or below selected portfolio item type. Result set was probably too large.' });
+                reject('Multi-level filter failed while filtering out items above or below selected portfolio item type. Result set was probably too large.');
+                //resolve([]);
+                // reject('Multi-level filter failed while filtering out items above or below selected portfolio item type. Result set was probably too large.'); // TODO REJECT!!!!!
+            }
+        });
+    },
+
+    _getLowestFilteredOrdinal: function () {
+
     },
 
     _setupPubSub: function () {
@@ -430,7 +686,7 @@ Ext.define('Utils.AncestorPiAppFilter', {
                     var selectedPi = this.piSelector.getValue();
                     _.merge(result, {
                         piTypePath: selectedPiTypePath,
-                        isPiSelected: !!selectedRecord,
+                        isPiSelected: !!selectedPi,
                         pi: selectedPi,
                         piRecord: selectedRecord
                     });
@@ -444,7 +700,18 @@ Ext.define('Utils.AncestorPiAppFilter', {
     },
 
     _setReady: function () {
+        this._updateReleaseValues();
+
         this.ready = true;
+
+        if (this._isSubscriber() && this.tabPanel) {
+            this.tabPanel.hide();
+        }
+
+        if (this._isSubscriber() && this.showFiltersBtn) {
+            this.showFiltersBtn.hide();
+        }
+
         this.fireEvent('ready', this);
     },
 
@@ -526,6 +793,27 @@ Ext.define('Utils.AncestorPiAppFilter', {
         return pluginSettingsFields.concat(fields || []);
     },
 
+    // When changing projects, if a release filter was previously applied, the inline filter state remembers the release
+    // filter, but fails to populate the comobobox with the release name, which becomes misleading to 
+    // the end user. This hack finds the release name and shoves it into the combobox.
+    _updateReleaseValues: function () {
+        _.each(this.filterControls, function (filter) {
+            _.each(filter.inlineFilterButton.inlineFilterPanel.advancedFilterPanel.advancedFilterRows.rows, function (row) {
+                if (row.name === 'Release' && row._valueFieldIsValid()) {
+                    _.each(row.items.items, function (rowItem) {
+                        if (rowItem.xtype === 'rallyreleasecombobox') {
+                            this._getRelease(rowItem.originalValue).then(function (release) {
+                                if (release) {
+                                    rowItem.rawValue = release.Name;
+                                }
+                            });
+                        }
+                    }, this);
+                }
+            }, this);
+        }, this);
+    },
+
     // Requires that app settings are available (e.g. from 'beforelaunch')
     _addAncestorControls: function () {
         var controlsLayout = {
@@ -600,6 +888,7 @@ Ext.define('Utils.AncestorPiAppFilter', {
                     ]
                 }, {
                     xtype: 'container',
+                    itemId: 'scopeControlArea',
                     id: 'scopeControlArea',
                     width: 250,
                     layout: {
@@ -608,6 +897,7 @@ Ext.define('Utils.AncestorPiAppFilter', {
                     },
                     items: [{
                         xtype: 'rallycombobox',
+                        itemId: 'ignoreScopeControl',
                         id: 'ignoreScopeControl',
                         stateful: true,
                         stateId: this.cmp.getContext().getScopedStateId('Utils.AncestorPiAppFilter.ignoreProjectScopeControl'),
@@ -650,26 +940,19 @@ Ext.define('Utils.AncestorPiAppFilter', {
 
         // Need to get pi types sorted by ordinal lowest to highest for the filter logic to work
         return new Promise(function (resolve) {
-            Rally.data.util.PortfolioItemHelper.getPortfolioItemTypes().then({
-                scope: this,
-                success: function (data) {
-                    this.portfolioItemTypes = data;
-
-                    if (!this._isSubscriber() && this._showAncestorFilter()) {
-                        // Now create the pi type selector
-                        this._addPiTypeSelector().then(function () {
-                            this._addPiSelector(this.piTypeSelector.getValue(), null).then(
-                                function () {
-                                    resolve();
-                                }.bind(this)
-                            );
-                        }.bind(this));
-                    }
-                    else {
-                        resolve();
-                    }
-                }
-            });
+            if (!this._isSubscriber() && this._showAncestorFilter()) {
+                // Now create the pi type selector
+                this._addPiTypeSelector().then(function () {
+                    this._addPiSelector(this.piTypeSelector.getValue(), null).then(
+                        function () {
+                            resolve();
+                        }.bind(this)
+                    );
+                }.bind(this));
+            }
+            else {
+                resolve();
+            }
         }.bind(this));
     },
 
@@ -808,8 +1091,9 @@ Ext.define('Utils.AncestorPiAppFilter', {
                         project: null
                     }
                 },
-                queryDelay: 7000,
-                autoSelectCurrentItem: false,
+                queryDelay: 2000,
+                typeAhead: false,
+                validateOnChange: false,
                 stateful: true,
                 stateId: this.cmp.getContext().getScopedStateId('Utils.AncestorPiAppFilter.piSelector'),
                 stateEvents: ['select'],
@@ -877,6 +1161,10 @@ Ext.define('Utils.AncestorPiAppFilter', {
     },
 
     _ignoreProjectScope: function () {
+        if (this._isSubscriber()) {
+            return this.publishedValue.ignoreProjectScope;
+        }
+
         var result = false;
         if (this._showIgnoreProjectScopeControl()) {
             // If the control is shown, that values overrides the ignoreScope app setting
@@ -904,7 +1192,7 @@ Ext.define('Utils.AncestorPiAppFilter', {
         else if (typeName === 'defect') {
             property = 'Requirement.' + piTypesAbove[0].get('Name');
         }
-        else if (Ext.String.startsWith(typeName, 'portfolioitem')) {
+        else if (Ext.String.startsWith(typeName.toLowerCase(), 'portfolioitem')) {
             property = 'Parent';
         }
 
@@ -936,7 +1224,7 @@ Ext.define('Utils.AncestorPiAppFilter', {
             });
             result = this.portfolioItemTypes.slice(0, selectedPiTypeIndex + 1);
         }
-        else if (Ext.String.startsWith(modelName, 'portfolioitem')) {
+        else if (Ext.String.startsWith(modelName.toLowerCase(), 'portfolioitem')) {
             modelNamePiTypeIndex = _.findIndex(this.portfolioItemTypes, function (piType) {
                 return piType.get('TypePath').toLowerCase() === modelName.toLowerCase();
             });
@@ -978,121 +1266,116 @@ Ext.define('Utils.AncestorPiAppFilter', {
                             }
                         );
 
-                        Rally.data.util.PortfolioItemHelper.getPortfolioItemTypes().then({
+                        var piTypePaths = _.map(this.portfolioItemTypes, function (piType) {
+                            return piType.get('TypePath');
+                        });
+                        piTypePaths.reverse();
+
+                        Rally.data.ModelFactory.getModels({
+                            types: piTypePaths,
+                            context: this.cmp.getContext(),
                             scope: this,
-                            success: function (piTypes) {
-                                this.piTypes = piTypes.reverse();
-                                var piTypePaths = _.map(piTypes, function (piType) {
-                                    return piType.get('TypePath');
+                            success: function (models) {
+                                this.models = models;
+
+                                this.tabPanel = this.panelRenderArea.add({
+                                    xtype: 'tabpanel',
+                                    width: '98%',
+                                    cls: 'blue-tabs',
+                                    minTabWidth: 100,
+                                    plain: true,
+                                    autoRender: true,
+                                    hidden: this._isSubscriber(),
+                                    hideMode: 'offsets',
+                                    items: []
                                 });
 
-                                this.models = Rally.data.ModelFactory.getModels({
-                                    types: piTypePaths,
-                                    context: this.cmp.getContext(),
-                                    scope: this,
-                                    success: function (models) {
+                                this.filterControls = [];
 
-                                        this.tabPanel = this.panelRenderArea.add({
-                                            xtype: 'tabpanel',
-                                            width: '98%',
-                                            cls: 'blue-tabs',
-                                            minTabWidth: 100,
-                                            plain: true,
+                                _.each(models, function (model, key) {
+                                    promises.push(new Promise(function (newResolve) {
+                                        let filterName = `inlineFilter${key}`;
+                                        this.filterControls.push(Ext.create('Rally.ui.inlinefilter.InlineFilterControl', {
+                                            xtype: 'rallyinlinefiltercontrol',
+                                            name: filterName,
                                             autoRender: true,
-                                            hidden: this._isSubscriber(),
-                                            items: []
+                                            stateful: true,
+                                            stateId: this.cmp.getContext().getScopedStateId(`multi-${filterName}-control`),
+                                            itemId: filterName,
+                                            context: this.cmp.getContext(),
+                                            inlineFilterButtonConfig: {
+                                                stateful: true,
+                                                stateId: this.cmp.getContext().getScopedStateId(`multi-${filterName}`),
+                                                context: this.cmp.getContext(),
+                                                modelNames: key,
+                                                filterChildren: this.filterChildren,
+                                                inlineFilterPanelConfig: {
+                                                    autoRender: true,
+                                                    name: `${filterName}-panel`,
+                                                    itemId: `${filterName}-panel`,
+                                                    model: model,
+                                                    padding: 5,
+                                                    width: '98%',
+                                                    context: this.cmp.getContext(),
+                                                    quickFilterPanelConfig: {
+                                                        defaultFields: this.defaultFilterFields,
+                                                        addQuickFilterConfig: {
+                                                            whiteListFields: this.whiteListFields,
+                                                            blackListFields: this.blackListFields
+                                                        }
+                                                    },
+                                                    advancedFilterPanelConfig: {
+                                                        collapsed: this.advancedFilterCollapsed,
+                                                        advancedFilterRowsConfig: {
+                                                            propertyFieldConfig: {
+                                                                blackListFields: this.blackListFields,
+                                                                whiteListFields: this.whiteListFields
+                                                            }
+                                                        }
+                                                    },
+                                                },
+                                                listeners: {
+                                                    inlinefilterchange: this._onFilterChange,
+                                                    inlinefilterready: function (panel) {
+                                                        this._onFilterReady(panel);
+                                                        newResolve();
+                                                    },
+                                                    scope: this
+                                                }
+                                            }
+                                        }));
+                                    }.bind(this)));
+                                }, this);
+
+                                Promise.all(promises).then(function () {
+                                    if (!this._isSubscriber()) {
+                                        this.clearAllButton = Ext.widget({
+                                            xtype: 'rallybutton',
+                                            itemId: 'clearAllButton',
+                                            cls: 'secondary rly-small clear-all-filters-button',
+                                            text: 'Clear All',
+                                            margin: '3 9 3 0',
+                                            hidden: !this._hasFilters(),
+                                            listeners: {
+                                                click: this._clearAllFilters,
+                                                scope: this
+                                            }
                                         });
 
-                                        this.filterControls = [];
+                                        this.btnRenderArea.add(this.clearAllButton);
+                                        this.tabPanel.setActiveTab(0);
+                                        if (this.filtersHidden) {
+                                            this.tabPanel.hide();
+                                        }
 
-                                        _.each(models, function (model, key) {
-                                            promises.push(new Promise(function (newResolve) {
-                                                var filterName = `inlineFilter${key}`;
-                                                this.filterControls.push(Ext.create('Rally.ui.inlinefilter.InlineFilterControl', {
-                                                    xtype: 'rallyinlinefiltercontrol',
-                                                    name: filterName,
-                                                    stateful: true,
-                                                    stateId: this.cmp.getContext().getScopedStateId(`multi-${filterName}-control`),
-                                                    itemId: filterName,
-                                                    context: this.cmp.getContext(),
-                                                    inlineFilterButtonConfig: {
-                                                        stateful: true,
-                                                        stateId: this.cmp.getContext().getScopedStateId(`multi-${filterName}`),
-                                                        context: this.cmp.getContext(),
-                                                        modelNames: key,
-                                                        filterChildren: this.filterChildren,
-                                                        inlineFilterPanelConfig: {
-                                                            name: `${filterName}-panel`,
-                                                            itemId: `${filterName}-panel`,
-                                                            model: model,
-                                                            padding: 5,
-                                                            width: '98%',
-                                                            context: this.cmp.getContext(),
-                                                            quickFilterPanelConfig: {
-                                                                defaultFields: this.defaultFilterFields,
-                                                                addQuickFilterConfig: {
-                                                                    whiteListFields: this.whiteListFields,
-                                                                    blackListFields: this.blackListFields
-                                                                }
-                                                            },
-                                                            advancedFilterPanelConfig: {
-                                                                collapsed: this.advancedFilterCollapsed,
-                                                                advancedFilterRowsConfig: {
-                                                                    propertyFieldConfig: {
-                                                                        blackListFields: this.blackListFields,
-                                                                        whiteListFields: this.whiteListFields
-                                                                    }
-                                                                }
-                                                            },
-                                                        },
-                                                        listeners: {
-                                                            inlinefilterchange: this._onFilterChange,
-                                                            inlinefilterready: function (panel) {
-                                                                this._onFilterReady(panel);
-                                                                newResolve();
-                                                            },
-                                                            scope: this
-                                                        }
-                                                    }
-                                                }));
-                                            }.bind(this)));
-                                        }, this);
-
-                                        Promise.all(promises).then(function () {
-
-                                            if (!this._isSubscriber()) {
-                                                this.clearAllButton = Ext.widget({
-                                                    xtype: 'rallybutton',
-                                                    itemId: 'clearAllButton',
-                                                    cls: 'secondary rly-small clear-all-filters-button',
-                                                    text: 'Clear All',
-                                                    margin: '3 9 3 0',
-                                                    hidden: !this._hasFilters(),
-                                                    listeners: {
-                                                        click: this._clearAllFilters,
-                                                        scope: this
-                                                    }
-                                                });
-
-                                                this.btnRenderArea.add(this.clearAllButton);
-                                                this.tabPanel.setActiveTab(0);
-                                                if (this.filtersHidden) {
-                                                    this.tabPanel.hide();
-                                                }
-
-                                                // Without this, the components are clipped on narrow windows
-                                                this.btnRenderArea.setOverflowXY('auto', 'auto');
-                                            }
-                                            resolve();
-                                        }.bind(this));
-                                    },
-                                    failure: function () {
-                                        reject('Failed to fetch models for multi-level filter');
+                                        // Without this, the components are clipped on narrow windows
+                                        this.btnRenderArea.setOverflowXY('auto', 'auto');
                                     }
-                                });
+                                    resolve();
+                                }.bind(this));
                             },
                             failure: function () {
-                                reject('Failed to fetch portfolio item types for multi-level filter');
+                                reject('Failed to fetch models for multi-level filter');
                             }
                         });
                     }
@@ -1110,6 +1393,7 @@ Ext.define('Utils.AncestorPiAppFilter', {
                                 }
                             ]
                         });
+                        resolve();
                     }
                 } else {
                     reject('Unable to find button render area for multi-level filter');
@@ -1125,9 +1409,20 @@ Ext.define('Utils.AncestorPiAppFilter', {
         this.suspendEvents(false);
         this.suspendLayouts();
 
+        // The quick filters don't properly clear if the filter isn't displayed
+        let activeTab = this.tabPanel.getActiveTab();
+
         _.each(this.filterControls, function (filterControl) {
-            filterControl.inlineFilterButton.clearAllFilters();
-        });
+            try {
+                this.tabPanel.setActiveTab(filterControl.tab);
+                filterControl.inlineFilterButton.clearAllFilters();
+            }
+            catch (e) {
+                console.log(e);
+            }
+        }.bind(this));
+
+        this.tabPanel.setActiveTab(activeTab);
 
         if (this.clearAllButton) {
             this.clearAllButton.hide();
@@ -1169,6 +1464,8 @@ Ext.define('Utils.AncestorPiAppFilter', {
             layout: 'hbox',
             items: [panel]
         });
+
+        panel.tab = tab;
     },
 
     _applyFilters: function () {
@@ -2374,7 +2671,7 @@ Ext.define('TSQueryCounter', {
     currentValues: [],
 
     launch() {
-        Rally.data.wsapi.Proxy.superclass.timeout = 240000;
+        Rally.data.wsapi.Proxy.superclass.timeout = 120000;
         let exportButton = this.down('#export-menu-button');
         exportButton.on('click', this._onExport, this);
         this._validateSettings();
@@ -2506,16 +2803,22 @@ Ext.define('TSQueryCounter', {
     // See getSdkInfo() in the SDK for how the timebox is restored.
     // This only seems to occur the first time after the page is made timebox scoped and goes away once
     // the page is reloaded once.
-    _runApp() {
+    async _runApp() {
+        let me = this;
         let promisesComplete = 0;
-        let errorCount = 0;
         let promises = [];
+        let ancestorFilters = {};
+        me.errorCount = 0;
+        me.maxErrors = 5;
+        me.loadingFailed = false;
+
+        this.setLoading('Loading Filters...');
 
         const refreshMask = () => {
-            this.setLoading(`Counting  ${promisesComplete} complete of ${promises.length} error count ${errorCount}`);
+            this.setLoading(`Counting  ${promisesComplete} complete of ${promises.length} error count ${me.errorCount}`);
         };
         const displayError = () => {
-            errorCount++;
+            me.errorCount++;
             refreshMask();
         };
         let timeboxScope = this.getContext().getTimeboxScope();
@@ -2523,15 +2826,15 @@ Ext.define('TSQueryCounter', {
 
         this.logger.log('_runApp', countVariables);
 
-        Ext.Array.each(countVariables, function f(cv) {
+        for (let cv of countVariables) {
             let { artifactType } = cv;
             let { query } = cv;
             let { id } = cv;
 
             let filters = null;
+            let ancestorFiltersForType = [];
 
             if (timeboxScope && this._timeboxScopeIsValidForArtifactType(timeboxScope, artifactType)) {
-                //               me.onTimeboxScopeChange(timebox);
                 filters = timeboxScope.getQueryFilter();
                 this.logger.log('Using Timebox Scope >>', filters.toString(), filters);
             }
@@ -2544,27 +2847,55 @@ Ext.define('TSQueryCounter', {
                 }
             }
 
-            let ancestorFilters = this.ancestorFilterPlugin.getAllFiltersForType(artifactType);
-            if (ancestorFilters) {
-                for (let i = 0; i < ancestorFilters.length; i++) {
-                    filters = filters.and(ancestorFilters[i]);
+            if (ancestorFilters[artifactType]) {
+                ancestorFiltersForType = ancestorFilters[artifactType];
+            } else {
+                ancestorFiltersForType = await this.ancestorFilterPlugin.getAllFiltersForType(artifactType, true).catch((e) => {
+                    this._showErrorNotification(e.message || e);
+                    this.setLoading(false);
+                    this.loadingFailed = true;
+                });
+                ancestorFilters[artifactType] = ancestorFiltersForType;
+            }
+
+            if (this.loadingFailed) {
+                return;
+            }
+
+            if (ancestorFiltersForType) {
+                for (let i = 0; i < ancestorFiltersForType.length; i++) {
+                    if (filters) {
+                        filters = filters.and(ancestorFiltersForType[i]);
+                    } else {
+                        filters = ancestorFiltersForType[i];
+                    }
                 }
             }
+
             let promise = this._loadRecordCount(artifactType, filters || [], id, displayError);
             promise.then((a) => {
-                promisesComplete++;
-                refreshMask();
-                return a;
+                if (!this.loadingFailed) {
+                    promisesComplete++;
+                    refreshMask();
+                    return a;
+                }
+            }).catch((e) => {
+                throw new Error(e);
             });
             promises.push(promise);
-        }, this);
+        }
 
         if (promises.length > 0) {
             refreshMask();
 
             Promise.all(promises)
                 .then((...args) => this._updateDisplay(...args))
-                .catch((...args) => this._showErrorNotification(...args))
+                .catch((...args) => {
+                    // Other promises could continue to resolve and update display so
+                    // we set a flag to prevent this from happening
+                    this.loadingFailed = true;
+                    this._showErrorNotification(...args);
+                })
                 .finally(() => this.setLoading(false));
         } else {
             this._updateDisplay();
@@ -2580,13 +2911,16 @@ Ext.define('TSQueryCounter', {
         let deferred = Ext.create('Deft.Deferred');
         let me = this;
         this.logger.log('Starting load: model >>', model, 'filters>>', filters.toString());
+
         let config = {
             model,
             filters,
             limit: 1,
             pageSize: 1,
-            fetch: false
+            fetch: ['_ref'],
+            enablePostGet: true
         };
+
         if (this.searchAllProjects()) {
             config.context = {
                 project: null
@@ -2603,10 +2937,17 @@ Ext.define('TSQueryCounter', {
                 } else {
                     console.warn('Failed: ', operation);
                     onFailedAttempt(id);
-                    this._loadRecordCount(model, filters, id, onFailedAttempt)
-                        .then(p => deferred.resolve(p));
+                    if (me.errorCount < me.maxErrors) {
+                        this._loadRecordCount(model, filters, id, onFailedAttempt)
+                            .then((p) => deferred.resolve(p))
+                            .catch((e) => { deferred.reject(e); });
+                    }
+                    else {
+                        deferred.reject(this._parseException(operation, `Store failed to load for type ${model}. Filter result set may have been too large`));
+                    }
                 }
-            }
+            },
+            scope: this
         });
         return CustomPromise.wrap(deferred.promise);
     },
@@ -2657,6 +2998,26 @@ Ext.define('TSQueryCounter', {
         return Rally.technicalservices.querycounter.Settings.getFields({
             width: this.getWidth()
         });
+    },
+
+    _parseException(e, defaultMessage) {
+        if (typeof e === 'string') {
+            return e;
+        }
+        if (e.exception && e.error && e.error.errors && e.error.errors.length && e.error.errors[0]) {
+            return e.error.errors[0];
+        }
+        if (e.exceptions && e.exceptions.length && e.exceptions[0].error) {
+            if (typeof e.exceptions[0].error === 'string') {
+                return e.exceptions[0].error;
+            }
+            // eslint-disable-next-line no-else-return
+            else if (e.exceptions[0].error.statusText) {
+                return e.exceptions[0].error.statusText;
+            }
+        }
+        console.log('Unable to parse exception', e);
+        return defaultMessage;
     }
 
 });

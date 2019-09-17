@@ -69,7 +69,7 @@ Ext.define('TSQueryCounter', {
     currentValues: [],
 
     launch() {
-        Rally.data.wsapi.Proxy.superclass.timeout = 240000;
+        Rally.data.wsapi.Proxy.superclass.timeout = 120000;
         let exportButton = this.down('#export-menu-button');
         exportButton.on('click', this._onExport, this);
         this._validateSettings();
@@ -201,16 +201,22 @@ Ext.define('TSQueryCounter', {
     // See getSdkInfo() in the SDK for how the timebox is restored.
     // This only seems to occur the first time after the page is made timebox scoped and goes away once
     // the page is reloaded once.
-    _runApp() {
+    async _runApp() {
+        let me = this;
         let promisesComplete = 0;
-        let errorCount = 0;
         let promises = [];
+        let ancestorFilters = {};
+        me.errorCount = 0;
+        me.maxErrors = 5;
+        me.loadingFailed = false;
+
+        this.setLoading('Loading Filters...');
 
         const refreshMask = () => {
-            this.setLoading(`Counting  ${promisesComplete} complete of ${promises.length} error count ${errorCount}`);
+            this.setLoading(`Counting  ${promisesComplete} complete of ${promises.length} error count ${me.errorCount}`);
         };
         const displayError = () => {
-            errorCount++;
+            me.errorCount++;
             refreshMask();
         };
         let timeboxScope = this.getContext().getTimeboxScope();
@@ -218,15 +224,15 @@ Ext.define('TSQueryCounter', {
 
         this.logger.log('_runApp', countVariables);
 
-        Ext.Array.each(countVariables, function f(cv) {
+        for (let cv of countVariables) {
             let { artifactType } = cv;
             let { query } = cv;
             let { id } = cv;
 
             let filters = null;
+            let ancestorFiltersForType = [];
 
             if (timeboxScope && this._timeboxScopeIsValidForArtifactType(timeboxScope, artifactType)) {
-                //               me.onTimeboxScopeChange(timebox);
                 filters = timeboxScope.getQueryFilter();
                 this.logger.log('Using Timebox Scope >>', filters.toString(), filters);
             }
@@ -239,27 +245,55 @@ Ext.define('TSQueryCounter', {
                 }
             }
 
-            let ancestorFilters = this.ancestorFilterPlugin.getAllFiltersForType(artifactType);
-            if (ancestorFilters) {
-                for (let i = 0; i < ancestorFilters.length; i++) {
-                    filters = filters.and(ancestorFilters[i]);
+            if (ancestorFilters[artifactType]) {
+                ancestorFiltersForType = ancestorFilters[artifactType];
+            } else {
+                ancestorFiltersForType = await this.ancestorFilterPlugin.getAllFiltersForType(artifactType, true).catch((e) => {
+                    this._showErrorNotification(e.message || e);
+                    this.setLoading(false);
+                    this.loadingFailed = true;
+                });
+                ancestorFilters[artifactType] = ancestorFiltersForType;
+            }
+
+            if (this.loadingFailed) {
+                return;
+            }
+
+            if (ancestorFiltersForType) {
+                for (let i = 0; i < ancestorFiltersForType.length; i++) {
+                    if (filters) {
+                        filters = filters.and(ancestorFiltersForType[i]);
+                    } else {
+                        filters = ancestorFiltersForType[i];
+                    }
                 }
             }
+
             let promise = this._loadRecordCount(artifactType, filters || [], id, displayError);
             promise.then((a) => {
-                promisesComplete++;
-                refreshMask();
-                return a;
+                if (!this.loadingFailed) {
+                    promisesComplete++;
+                    refreshMask();
+                    return a;
+                }
+            }).catch((e) => {
+                throw new Error(e);
             });
             promises.push(promise);
-        }, this);
+        }
 
         if (promises.length > 0) {
             refreshMask();
 
             Promise.all(promises)
                 .then((...args) => this._updateDisplay(...args))
-                .catch((...args) => this._showErrorNotification(...args))
+                .catch((...args) => {
+                    // Other promises could continue to resolve and update display so
+                    // we set a flag to prevent this from happening
+                    this.loadingFailed = true;
+                    this._showErrorNotification(...args);
+                })
                 .finally(() => this.setLoading(false));
         } else {
             this._updateDisplay();
@@ -275,13 +309,16 @@ Ext.define('TSQueryCounter', {
         let deferred = Ext.create('Deft.Deferred');
         let me = this;
         this.logger.log('Starting load: model >>', model, 'filters>>', filters.toString());
+
         let config = {
             model,
             filters,
             limit: 1,
             pageSize: 1,
-            fetch: false
+            fetch: ['_ref'],
+            enablePostGet: true
         };
+
         if (this.searchAllProjects()) {
             config.context = {
                 project: null
@@ -298,10 +335,17 @@ Ext.define('TSQueryCounter', {
                 } else {
                     console.warn('Failed: ', operation);
                     onFailedAttempt(id);
-                    this._loadRecordCount(model, filters, id, onFailedAttempt)
-                        .then(p => deferred.resolve(p));
+                    if (me.errorCount < me.maxErrors) {
+                        this._loadRecordCount(model, filters, id, onFailedAttempt)
+                            .then((p) => deferred.resolve(p))
+                            .catch((e) => { deferred.reject(e); });
+                    }
+                    else {
+                        deferred.reject(this._parseException(operation, `Store failed to load for type ${model}. Filter result set may have been too large`));
+                    }
                 }
-            }
+            },
+            scope: this
         });
         return CustomPromise.wrap(deferred.promise);
     },
@@ -352,6 +396,26 @@ Ext.define('TSQueryCounter', {
         return Rally.technicalservices.querycounter.Settings.getFields({
             width: this.getWidth()
         });
+    },
+
+    _parseException(e, defaultMessage) {
+        if (typeof e === 'string') {
+            return e;
+        }
+        if (e.exception && e.error && e.error.errors && e.error.errors.length && e.error.errors[0]) {
+            return e.error.errors[0];
+        }
+        if (e.exceptions && e.exceptions.length && e.exceptions[0].error) {
+            if (typeof e.exceptions[0].error === 'string') {
+                return e.exceptions[0].error;
+            }
+            // eslint-disable-next-line no-else-return
+            else if (e.exceptions[0].error.statusText) {
+                return e.exceptions[0].error.statusText;
+            }
+        }
+        console.log('Unable to parse exception', e);
+        return defaultMessage;
     }
 
 });
