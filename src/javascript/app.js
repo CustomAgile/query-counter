@@ -203,7 +203,10 @@ Ext.define('TSQueryCounter', {
     // the page is reloaded once.
     async _runApp() {
         let me = this;
+        let timeboxScope = this.getContext().getTimeboxScope();
+        let countVariables = this._getCountVariables();
         let promisesComplete = 0;
+        let totalQueries = countVariables.length;
         let promises = [];
         let ancestorFilters = {};
         me.errorCount = 0;
@@ -213,14 +216,12 @@ Ext.define('TSQueryCounter', {
         this.setLoading('Loading Filters...');
 
         const refreshMask = () => {
-            this.setLoading(`Counting  ${promisesComplete} complete of ${promises.length} error count ${me.errorCount}`);
+            this.setLoading(`Counting  ${promisesComplete} complete of ${totalQueries} error count ${me.errorCount}`);
         };
         const displayError = () => {
             me.errorCount++;
             refreshMask();
         };
-        let timeboxScope = this.getContext().getTimeboxScope();
-        let countVariables = this._getCountVariables();
 
         this.logger.log('_runApp', countVariables);
 
@@ -263,7 +264,7 @@ Ext.define('TSQueryCounter', {
             }
 
             if (ancestorFiltersForType) {
-                for (let i = 0; i < ancestorFiltersForType.length; i++) {
+                for (let i = 0;i < ancestorFiltersForType.length;i++) {
                     if (filters) {
                         filters = filters.and(ancestorFiltersForType[i]);
                     } else {
