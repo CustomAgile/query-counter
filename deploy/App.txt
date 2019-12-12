@@ -3,11 +3,11 @@
 <head>
     <title>query-counter-1.2.4</title>
     <!--  (c) 2019 Custom Agile.  All Rights Reserved. -->
-    <!--  Build Date: Thu Dec 12 2019 13:59:23 GMT-0500 (Eastern Standard Time) -->
+    <!--  Build Date: Thu Dec 12 2019 15:18:39 GMT-0500 (Eastern Standard Time) -->
 
     <script type="text/javascript">
-        var APP_BUILD_DATE = "Thu Dec 12 2019 13:59:23 GMT-0500 (Eastern Standard Time)";
-        var CHECKSUM = 1385912117631;
+        var APP_BUILD_DATE = "Thu Dec 12 2019 15:18:39 GMT-0500 (Eastern Standard Time)";
+        var CHECKSUM = 1385896332848;
     </script>
 
     <script type="text/javascript" src="/apps/2.1/sdk.js"></script>
@@ -68,7 +68,7 @@ Ext.define('CustomAgile.multilevelfilter.ToggleButton', {
 
 Ext.define('Utils.AncestorPiAppFilter', {
     alias: 'plugin.UtilsAncestorPiAppFilter',
-    version: "1.1.3",
+    version: "1.1.4",
     mixins: [
         'Ext.AbstractPlugin',
         'Rally.Messageable'
@@ -890,7 +890,7 @@ Ext.define('Utils.AncestorPiAppFilter', {
             }
 
             if (!this.publishedValue.filters) {
-                setInterval(function () {
+                setTimeout(function () {
                     this.ready = true;
                     this.fireEvent('ready', this);
                 }.bind(this), 800);
