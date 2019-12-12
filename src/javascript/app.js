@@ -77,6 +77,7 @@ Ext.define('TSQueryCounter', {
         this.ancestorFilterPlugin = Ext.create('Utils.AncestorPiAppFilter', {
             ptype: 'UtilsAncestorPiAppFilter',
             pluginId: 'ancestorFilterPlugin',
+            whiteListFields: ['Milestones', 'Tags', 'c_EnterpriseApprovalEA'],
             settingsConfig: {
                 labelWidth: 150,
                 margin: 10
@@ -246,6 +247,8 @@ Ext.define('TSQueryCounter', {
                 }
             }
 
+            // If we have multiple queries on the same artifact type, save the filter
+            // so we don't have to fetch it multiple times
             if (ancestorFilters[artifactType]) {
                 ancestorFiltersForType = ancestorFilters[artifactType];
             } else {
@@ -417,7 +420,7 @@ Ext.define('TSQueryCounter', {
                 return e.exceptions[0].error.statusText;
             }
         }
-        console.log('Unable to parse exception', e);
+        console.warn('Unable to parse exception', e);
         return defaultMessage;
     }
 
