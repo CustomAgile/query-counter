@@ -210,6 +210,9 @@ Ext.define('TSQueryCounter', {
         let totalQueries = countVariables.length;
         let promises = [];
         let ancestorFilters = {};
+        // This object helps us cancel a load that is waiting for filters to be returned
+        let thisStatus = { loadingFailed: false, cancelLoad: false };
+        this._cancelPreviousLoad(thisStatus);
         me.errorCount = 0;
         me.maxErrors = 5;
         me.loadingFailed = false;
@@ -253,21 +256,23 @@ Ext.define('TSQueryCounter', {
                 ancestorFiltersForType = ancestorFilters[artifactType];
             } else {
                 ancestorFiltersForType = await this.ancestorFilterPlugin.getAllFiltersForType(artifactType, true).catch((e) => {
-                    this._showErrorNotification(e.message || e);
-                    this.setLoading(false);
-                    this.loadingFailed = true;
+                    if (!thisStatus.cancelLoad) {
+                        this._showErrorNotification(e.message || e);
+                        this.setLoading(false);
+                        thisStatus.loadingFailed = true;
+                    }
                 });
                 if (ancestorFiltersForType) {
                     ancestorFilters[artifactType] = ancestorFiltersForType;
                 }
             }
 
-            if (this.loadingFailed) {
+            if (thisStatus.loadingFailed || thisStatus.cancelLoad) {
                 return;
             }
 
             if (ancestorFiltersForType) {
-                for (let i = 0;i < ancestorFiltersForType.length;i++) {
+                for (let i = 0; i < ancestorFiltersForType.length; i++) {
                     if (filters) {
                         filters = filters.and(ancestorFiltersForType[i]);
                     } else {
@@ -278,13 +283,15 @@ Ext.define('TSQueryCounter', {
 
             let promise = this._loadRecordCount(artifactType, filters || [], id, displayError);
             promise.then((a) => {
-                if (!this.loadingFailed) {
+                if (!thisStatus.loadingFailed && !thisStatus.cancelLoad) {
                     promisesComplete++;
                     refreshMask();
                     return a;
                 }
             }).catch((e) => {
-                throw new Error(e);
+                if (!thisStatus.cancelLoad) {
+                    throw new Error(e);
+                }
             });
             promises.push(promise);
         }
@@ -293,17 +300,30 @@ Ext.define('TSQueryCounter', {
             refreshMask();
 
             Promise.all(promises)
-                .then((...args) => this._updateDisplay(...args))
+                .then((...args) => {
+                    if (!thisStatus.loadingFailed && !thisStatus.cancelLoad) { this._updateDisplay(...args) }
+                })
                 .catch((...args) => {
                     // Other promises could continue to resolve and update display so
                     // we set a flag to prevent this from happening
-                    this.loadingFailed = true;
+                    thisStatus.loadingFailed = true;
                     this._showErrorNotification(...args);
                 })
-                .finally(() => this.setLoading(false));
+                .finally(() => {
+                    if (!thisStatus.cancelLoad) {
+                        this.setLoading(false)
+                    }
+                })
         } else {
             this._updateDisplay();
         }
+    },
+
+    _cancelPreviousLoad: function (newStatus) {
+        if (this.globalStatus) {
+            this.globalStatus.cancelLoad = true;
+        }
+        this.globalStatus = newStatus;
     },
 
     _showErrorNotification(msg) {
@@ -319,8 +339,7 @@ Ext.define('TSQueryCounter', {
         let config = {
             model,
             filters,
-            limit: 1,
-            pageSize: 1,
+            // pageSize: 1, There is a current defect that returns an incorrect value for TotalResultCount if the pagesize is set
             fetch: ['_ref'],
             enablePostGet: true
         };
