@@ -1,13 +1,13 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>query-counter-1.2.8</title>
+    <title>query-counter-1.2.9</title>
     <!--  (c) 2019 Custom Agile.  All Rights Reserved. -->
-    <!--  Build Date: Wed Jan 22 2020 19:44:45 GMT+0100 (Central European Standard Time) -->
+    <!--  Build Date: Tue Feb 04 2020 15:28:24 GMT+0100 (Central European Standard Time) -->
 
     <script type="text/javascript">
-        var APP_BUILD_DATE = "Wed Jan 22 2020 19:44:45 GMT+0100 (Central European Standard Time)";
-        var CHECKSUM = 1518745560887;
+        var APP_BUILD_DATE = "Tue Feb 04 2020 15:28:24 GMT+0100 (Central European Standard Time)";
+        var CHECKSUM = 1524455602826;
     </script>
 
     <script type="text/javascript" src="/apps/2.1/sdk.js"></script>
@@ -124,7 +124,7 @@ multiFilterHelpHtml = `
         `;
 Ext.define('Utils.AncestorPiAppFilter', {
     alias: 'plugin.UtilsAncestorPiAppFilter',
-    version: "1.2.2",
+    version: "1.2.3",
     mixins: [
         'Ext.AbstractPlugin',
         'Rally.Messageable'
@@ -689,6 +689,12 @@ Ext.define('Utils.AncestorPiAppFilter', {
         if (filter) {
             if (filter.property) {
                 if (typeof filter.property === 'string') {
+                    if (filter.config && filter.property === filter.config.property) {
+                        filter.config.property = `${parentPrefix}.${filter.property}`;
+                    }
+                    if (filter.initialConfig && filter.property === filter.initialConfig.property) {
+                        filter.initialConfig.property = `${parentPrefix}.${filter.property}`;
+                    }
                     filter.property = `${parentPrefix}.${filter.property}`;
                 }
                 else {
@@ -3190,7 +3196,7 @@ Ext.define('TSQueryCounter', {
     currentValues: [],
 
     launch() {
-        Rally.data.wsapi.Proxy.superclass.timeout = 120000;
+        Rally.data.wsapi.Proxy.superclass.timeout = 240000;
         let exportButton = this.down('#export-menu-button');
         exportButton.on('click', this._onExport, this);
         this._validateSettings();
@@ -3458,9 +3464,10 @@ Ext.define('TSQueryCounter', {
         this.logger.log('Starting load: model >>', model, 'filters>>', filters.toString());
 
         let config = {
-            model,
+            models: [model],
             filters,
-            // pageSize: 1, There is a current defect that returns an incorrect value for TotalResultCount if the pagesize is set
+            limit: 1,
+            pageSize: 1, // There is a current defect that returns an incorrect value for TotalResultCount if the pagesize is set and store is Rally.data.wsapi.Store
             fetch: ['_ref'],
             enablePostGet: true
         };
@@ -3471,7 +3478,7 @@ Ext.define('TSQueryCounter', {
             };
         }
 
-        Ext.create('Rally.data.wsapi.Store', config).load({
+        Ext.create('Rally.data.wsapi.artifact.Store', config).load({
             callback: (records, operation, successful) => {
                 let result = {};
                 if (successful) {

@@ -69,7 +69,7 @@ Ext.define('TSQueryCounter', {
     currentValues: [],
 
     launch() {
-        Rally.data.wsapi.Proxy.superclass.timeout = 120000;
+        Rally.data.wsapi.Proxy.superclass.timeout = 240000;
         let exportButton = this.down('#export-menu-button');
         exportButton.on('click', this._onExport, this);
         this._validateSettings();
@@ -337,9 +337,10 @@ Ext.define('TSQueryCounter', {
         this.logger.log('Starting load: model >>', model, 'filters>>', filters.toString());
 
         let config = {
-            model,
+            models: [model],
             filters,
-            // pageSize: 1, There is a current defect that returns an incorrect value for TotalResultCount if the pagesize is set
+            limit: 1,
+            pageSize: 1, // There is a current defect that returns an incorrect value for TotalResultCount if the pagesize is set and store is Rally.data.wsapi.Store
             fetch: ['_ref'],
             enablePostGet: true
         };
@@ -350,7 +351,7 @@ Ext.define('TSQueryCounter', {
             };
         }
 
-        Ext.create('Rally.data.wsapi.Store', config).load({
+        Ext.create('Rally.data.wsapi.artifact.Store', config).load({
             callback: (records, operation, successful) => {
                 let result = {};
                 if (successful) {
