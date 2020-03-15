@@ -77,7 +77,7 @@ Ext.define('TSQueryCounter', {
         this.ancestorFilterPlugin = Ext.create('Utils.AncestorPiAppFilter', {
             ptype: 'UtilsAncestorPiAppFilter',
             pluginId: 'ancestorFilterPlugin',
-            whiteListFields: ['Milestones', 'Tags', 'c_EnterpriseApprovalEA'],
+            whiteListFields: ['Milestones', 'Tags', 'c_EnterpriseApprovalEA', 'c_EAEpic'],
             settingsConfig: {
                 labelWidth: 150,
                 margin: 10
