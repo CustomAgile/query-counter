@@ -3,11 +3,11 @@
 <head>
     <title>query-counter-1.2.10</title>
     <!--  (c) 2019 Custom Agile.  All Rights Reserved. -->
-    <!--  Build Date: Sun Mar 15 2020 13:59:39 GMT+0100 (Central European Standard Time) -->
-
+    <!--  Build Date: Sun Mar 15 2020 14:44:51 GMT+0100 (Central European Standard Time) -->
+    <!--  Repository: https://github.com/CustomAgile/query-counter -->
     <script type="text/javascript">
-        var APP_BUILD_DATE = "Sun Mar 15 2020 13:59:39 GMT+0100 (Central European Standard Time)";
-        var CHECKSUM = 1525335146480;
+        var APP_BUILD_DATE = "Sun Mar 15 2020 14:44:51 GMT+0100 (Central European Standard Time)";
+        var CHECKSUM = 1526351978361;
     </script>
 
     <script type="text/javascript" src="/apps/2.1/sdk.js"></script>
