@@ -11,6 +11,7 @@
         "src/javascript/*.js"
     ],
     "css": [
-        "node_modules/@customagile/ancestor-pi-multi-level-pi-app-filter/index.css"
+        "node_modules/@customagile/ancestor-pi-multi-level-pi-app-filter/index.css",
+        "src/style/app.css"
     ]
 }
