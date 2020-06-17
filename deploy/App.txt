@@ -3,11 +3,11 @@
 <head>
     <title>query-counter-1.2.12</title>
     <!--  (c) 2020 Custom Agile.  All Rights Reserved. -->
-    <!--  Build Date: Wed Jun 17 2020 15:57:52 GMT-0400 (Eastern Daylight Time) -->
+    <!--  Build Date: Wed Jun 17 2020 16:51:48 GMT-0400 (Eastern Daylight Time) -->
     <!--  Repository: https://github.com/CustomAgile/query-counter -->
     <script type="text/javascript">
-        var APP_BUILD_DATE = "Wed Jun 17 2020 15:57:52 GMT-0400 (Eastern Daylight Time)";
-        var CHECKSUM = 400214421093;
+        var APP_BUILD_DATE = "Wed Jun 17 2020 16:51:48 GMT-0400 (Eastern Daylight Time)";
+        var CHECKSUM = 400311734731;
     </script>
 
     <script type="text/javascript" src="/apps/2.1/sdk.js"></script>
@@ -448,7 +448,7 @@ Ext.define('CustomAgile.ui.tutorial.MultiLevelFilterTutorial', {
 });
 Ext.define('Utils.AncestorPiAppFilter', {
     alias: 'plugin.UtilsAncestorPiAppFilter',
-    version: "1.3.3",
+    version: "1.3.4",
     mixins: [
         'Ext.AbstractPlugin',
         'Rally.Messageable'
@@ -694,6 +694,7 @@ Ext.define('Utils.AncestorPiAppFilter', {
 
         Rally.data.PreferenceManager.load({
             filterByName: prefName,
+            scope: this,
             success: function (pref) {
                 if (pref && pref.hasOwnProperty(prefName)) {
                     try {
