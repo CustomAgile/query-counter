@@ -9,41 +9,24 @@ Ext.define('TSQueryCounter', {
             type: 'vbox',
             align: 'stretch'
         },
-        items: [{
-            xtype: 'container',
-            layout: {
-                type: 'hbox',
-                align: 'middle'
-            },
-            items: [
-                {
-                    id: Utils.AncestorPiAppFilter.RENDER_AREA_ID,
-                    xtype: 'container',
-                    layout: {
-                        type: 'hbox',
-                        align: 'middle',
-                        defaultMargins: '0 10 10 0',
-                    }
-                },
-                {
-                    xtype: 'rallybutton',
-                    style: { float: 'right' },
-                    cls: 'secondary rly-small',
-                    frame: false,
-                    width: 34,
-                    itemId: 'export-menu-button',
-                    iconCls: 'icon-export'
+        items: [
+            {
+                id: Utils.AncestorPiAppFilter.RENDER_AREA_ID,
+                xtype: 'container',
+                layout: {
+                    type: 'hbox',
+                    align: 'middle',
+                    defaultMargins: '0 10 10 0',
                 }
-            ]
-        }, {
-            id: Utils.AncestorPiAppFilter.PANEL_RENDER_AREA_ID,
-            xtype: 'container',
-            layout: {
-                type: 'hbox',
-                align: 'middle',
-                defaultMargins: '0 10 10 0',
-            }
-        }]
+            }, {
+                id: Utils.AncestorPiAppFilter.PANEL_RENDER_AREA_ID,
+                xtype: 'container',
+                layout: {
+                    type: 'hbox',
+                    align: 'middle',
+                    defaultMargins: '0 10 10 0',
+                }
+            }]
     },
     {
         xtype: 'container',
@@ -70,19 +53,15 @@ Ext.define('TSQueryCounter', {
 
     launch() {
         Rally.data.wsapi.Proxy.superclass.timeout = 240000;
-        let exportButton = this.down('#export-menu-button');
-        exportButton.on('click', this._onExport, this);
         this._validateSettings();
 
         this.ancestorFilterPlugin = Ext.create('Utils.AncestorPiAppFilter', {
             ptype: 'UtilsAncestorPiAppFilter',
             pluginId: 'ancestorFilterPlugin',
-            whiteListFields: ['Milestones', 'Tags', 'c_EnterpriseApprovalEA', 'c_EAEpic', 'DisplayColor'],
             settingsConfig: {
                 labelWidth: 150,
                 margin: 10
             },
-            filtersHidden: false,
             listeners: {
                 scope: this,
                 ready(plugin) {
@@ -91,6 +70,19 @@ Ext.define('TSQueryCounter', {
                         select: this._runApp,
                         change: this._runApp
                     });
+
+                    let exportBtn = this.down('#' + Utils.AncestorPiAppFilter.RENDER_AREA_ID).add({
+                        xtype: 'rallybutton',
+                        style: { float: 'right' },
+                        cls: 'secondary rly-small',
+                        frame: false,
+                        width: 34,
+                        itemId: 'export-menu-button',
+                        iconCls: 'icon-export'
+                    });
+
+                    exportBtn.on('click', this._onExport, this);
+
                     this._reloadModel().then({
                         scope: this,
                         success: this._runApp
